@@ -260,7 +260,7 @@ def new_fc_layer(input,          # The previous layer.
 
     return layer
     
-def next_batch(X_data, y_data, mini_batch_size):
+def new_epoch(X_data, y_data):
 
     # Get some random images
     n_data = X_data.shape[0]
@@ -269,15 +269,33 @@ def next_batch(X_data, y_data, mini_batch_size):
     np.random.shuffle(perm)
     
     # Get the first images from the test-set.
-    images_rand = X_data[perm][:mini_batch_size]
+    images_rand = X_data[perm]
 
     # Get the true classes for those images.
-    cls_true_rand = y_data[perm][:mini_batch_size]
+    cls_true_rand = y_data[perm]
     
     #shuffle data.x and data.y while retaining relation
-    #return [data.x[:mini_batch_size], data.y[:mini_batch_size]]
     return [images_rand, cls_true_rand]
 
+def batches(batch_size, features, labels):
+    """
+    Create batches of features and labels
+    :param batch_size: The batch size
+    :param features: List of features
+    :param labels: List of labels
+    :return: Batches of (Features, Labels)
+    """
+    assert len(features) == len(labels)
+    outout_batches = []
+    
+    sample_size = len(features)
+    for start_i in range(0, sample_size, batch_size):
+        end_i = start_i + batch_size
+        batch = [features[start_i:end_i], labels[start_i:end_i]]
+        outout_batches.append(batch)
+        
+    return outout_batches
+    
 def dense_to_one_hot(labels_dense, num_classes=10):
   """
   Convert class labels from scalars to one-hot vectors
@@ -289,7 +307,7 @@ def dense_to_one_hot(labels_dense, num_classes=10):
 
   return labels_one_hot
   
-def optimize(X_train, y_train_hot_encoded, train_batch_size, num_iterations):
+def optimize(X_train, y_train_hot_encoded, train_batch_size, epochs):
     # Ensure we update the global variable rather than a local copy.
 #    global total_iterations
 
@@ -298,33 +316,32 @@ def optimize(X_train, y_train_hot_encoded, train_batch_size, num_iterations):
 
 #    for i in range(total_iterations,
 #                   total_iterations + num_iterations):
-    for i in range(num_iterations):
+    for epoch_i in range(epochs):
 
         # Get a batch of training examples.
         # x_batch now holds a batch of images and
         # y_true_batch are the true labels for those images.
-        x_batch, y_true_batch = next_batch(X_train, y_train_hot_encoded, train_batch_size)
+        
+        features, labels = new_epoch(X_train, y_train_hot_encoded)
+        
+        for x_batch, y_true_batch in batches(train_batch_size, features, labels):
 
-        # Put the batch into a dict with the proper names
-        # for placeholder variables in the TensorFlow graph.
-        feed_dict_train = {x_image: x_batch,
-                           y_true: y_true_batch}
+            # Put the batch into a dict with the proper names
+            # for placeholder variables in the TensorFlow graph.
+            feed_dict_train = {x_image: x_batch, y_true: y_true_batch}
+    
+            # Run the optimizer using this batch of training data.
+            # TensorFlow assigns the variables in feed_dict_train
+            # to the placeholder variables and then runs the optimizer.
+            session.run(optimizer, feed_dict=feed_dict_train)
 
-        # Run the optimizer using this batch of training data.
-        # TensorFlow assigns the variables in feed_dict_train
-        # to the placeholder variables and then runs the optimizer.
-        session.run(optimizer, feed_dict=feed_dict_train)
+        acc = session.run(accuracy, feed_dict=feed_dict_train)
 
-        # Print status every 100 iterations.
-        if i % 100 == 0:
-            # Calculate the accuracy on the training-set.
-            acc = session.run(accuracy, feed_dict=feed_dict_train)
+        # Message for printing.
+        msg = "Optimization Iteration: {0:>6}, Training Accuracy: {1:>6.1%}"
 
-            # Message for printing.
-            msg = "Optimization Iteration: {0:>6}, Training Accuracy: {1:>6.1%}"
-
-            # Print it.
-            print(msg.format(i + 1, acc))
+        # Print it.
+        print(msg.format(epoch_i + 1, acc))
 
     # Update the total number of iterations performed.
 #    total_iterations += num_iterations
@@ -496,21 +513,24 @@ def resize_image(image_name, enable_plot = False):
         plt.imshow(image_resized)
     return image_resized
 
+
 if __name__ == "__main__":
     
     # load data
     training_file = 'lab 2 data/train.p'
     testing_file = 'lab 2 data/test.p'
     
+    save_file = 'train_model.ckpt'
+    saver = tf.train.Saver()
     
     X_train_base, y_train_base, X_val, y_val, X_test, y_test = load_data(training_file, testing_file, load_as_gray = False)
     
-    #X_train_sheared_pos = shear_images(X_train_base, 0.1)
-    #X_train_sheared_neg = shear_images(X_train_base, -0.2)
+    X_train_sheared_pos = shear_images(X_train_base, 0.1)
+    X_train_sheared_neg = shear_images(X_train_base, -0.1)
     
     # numpy array will come as float. as imshow results in strange behaviour, with float, convert it back to unsigned int
-    X_train = np.uint8(np.concatenate((X_train_base, X_train_base), axis=0))
-    y_train = np.uint8(np.concatenate((y_train_base, y_train_base)))
+    X_train = np.uint8(np.concatenate((X_train_base, X_train_sheared_pos, X_train_sheared_neg), axis=0))
+    y_train = np.uint8(np.concatenate((y_train_base, y_train_base, y_train_base)))
     #X_train = X_train_base
     #y_train = y_train_base
     
@@ -660,7 +680,7 @@ if __name__ == "__main__":
     train_batch_size = 64
     
     # run optimization
-    optimize(X_train, y_train_hot_encoded, train_batch_size, 1000)
+    optimize(X_train, y_train_hot_encoded, train_batch_size, 10)
 
     print('Validation Set')
     print_test_accuracy(X_val, y_val, y_val_hot_encoded, y_pred_cls, n_classes, show_example_errors=True, show_confusion_matrix=True)
@@ -698,3 +718,8 @@ if __name__ == "__main__":
     
     print('Set from the web')
     print_test_accuracy(X_web, y_web, y_web_hot_encoded, y_pred_cls, n_classes, show_example_errors=False, show_confusion_matrix=False)
+
+    
+    # Save the model
+    saver.save(session, save_file)
+    print('Trained Model Saved.')
