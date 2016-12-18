@@ -9,29 +9,99 @@ Created on Mon Dec 12 18:20:20 2016
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
+import scipy
+
 from sklearn.metrics import confusion_matrix
 import time
 from datetime import timedelta
-import math
 import pickle
+from skimage import transform
+import cv2
+import matplotlib.image as mpimg
 
 
-def load_data(training_file, testing_file):
+def grayscale(img):
+    """Applies the Grayscale transform
+    This will return an image with only one color channel
+    but NOTE: to see the returned image as grayscale
+    you should call plt.imshow(gray, cmap='gray')"""
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+def gray_images(image_list, enable_plot = False):
+    """
+    applyies graysacle transformation to a list of images (numpy arrays)
+    """
+    grayed_image_list = []
+    for image in image_list:
+        gray = grayscale(image.astype(np.uint8))
+        grayed_image_list.append(gray)
+        
+        if enable_plot:
+            fig, axes = plt.subplots(1,2)
+            axes[0].imshow(image)
+            axes[1].imshow(gray, cmap='gray')
+            plt.show()
+            
+    return np.array(grayed_image_list)
+    
+def shear_images(image_list, shear_factor = 0.2, enable_plot = False):
+    """
+    sheares a list of images (numpy arrays) and returns a new list of sheared images
+    """
+    sheared_image_list = []
+    afine_tf = transform.AffineTransform(shear=shear_factor)
+    for image in image_list:
+        modified = transform.warp(image, afine_tf)
+        sheared_image_list.append(modified)
+        
+        if enable_plot:
+            fig, axes = plt.subplots(1,2)
+            axes[0].imshow(image)
+            axes[1].imshow(modified)
+            plt.show()
+        
+    return np.array(sheared_image_list)
+    
+def load_data(training_file, testing_file, load_as_gray=False):
     """ 
-    load data
+    loads data from pickle
+    divides training data and set used for training and set used for validation
+    returns training, validation and test sets (images and corresponding classes)
     """
     with open(training_file, mode='rb') as f:
         train = pickle.load(f)
     with open(testing_file, mode='rb') as f:
         test = pickle.load(f)
         
-    X_train, y_train = train['features'], train['labels']
+    X_train_all, y_train_all = train['features'], train['labels']
+    n_train_all = X_train_all.shape[0]
+    
+    # rearrange data
+    perm = np.arange(n_train_all)
+    np.random.shuffle(perm)
+    n_train = round(n_train_all*0.9)
+    
+    # Get the train images from the overall set.
+    X_train = X_train_all[perm][:n_train]
+    # Get the validation images from the overall set.
+    y_train = y_train_all[perm][:n_train]
+    
+    # Get the train images from the overall set.
+    X_val = X_train_all[perm][n_train:]
+    # Get the validation images from the overall set.
+    y_val = y_train_all[perm][n_train:]
+    
     X_test, y_test = test['features'], test['labels']
 
-    return X_train, y_train, X_test, y_test
+    if load_as_gray:
+        return gray_images(X_train), y_train, gray_images(X_val), y_val, gray_images(X_test), y_test
+    else:
+        return X_train, y_train, X_val, y_val, X_test, y_test
 
 def plot_all_classes(X_data, y_data):
-    
+    """
+    plots all classes to get an overview
+    """
     u,indices = np.unique(y_data, return_index=True)
     
     # Create figure with 3x3 sub-plots.
@@ -42,21 +112,19 @@ def plot_all_classes(X_data, y_data):
 
         # Plot image.
         if i < len(indices):
-            ax.imshow(X_data[indices][i])#.reshape(image_shape))#, cmap='binary')
+            ax.imshow(X_data[indices][i])
     
             xlabel = "True: {0}".format(y_data[indices][i])
             
-            # Show the classes as the label on the x-axis.
+            # Show classes as label on x-axis
             ax.set_xlabel(xlabel)
             
-            # Remove ticks from the plot.
+            # Remove ticks
             ax.set_xticks([])
             ax.set_yticks([])
         else:
             ax.axis('off')
     
-    # Ensure the plot is shown correctly with multiple plots
-    # in a single Notebook cell.
     plt.show()
     
     
@@ -64,7 +132,7 @@ def plot_images(images, cls_true, cls_pred=None):
     """
     plot 9 images with true classes
     """
-    assert len(images) == len(cls_true) == 9
+    assert len(images) == len(cls_true) <= 9
     
     # Create figure with 3x3 sub-plots.
     fig, axes = plt.subplots(3, 3)
@@ -80,15 +148,13 @@ def plot_images(images, cls_true, cls_pred=None):
         else:
             xlabel = "True: {0}, Pred: {1}".format(cls_true[i], cls_pred[i])
 
-        # Show the classes as the label on the x-axis.
+        # Show classes as label on x-axis
         ax.set_xlabel(xlabel)
         
-        # Remove ticks from the plot.
+        # Remove ticks
         ax.set_xticks([])
         ax.set_yticks([])
     
-    # Ensure the plot is shown correctly with multiple plots
-    # in a single Notebook cell.
     plt.show()
 
     
@@ -225,13 +291,14 @@ def dense_to_one_hot(labels_dense, num_classes=10):
   
 def optimize(X_train, y_train_hot_encoded, train_batch_size, num_iterations):
     # Ensure we update the global variable rather than a local copy.
-    global total_iterations
+#    global total_iterations
 
     # Start-time used for printing time-usage below.
     start_time = time.time()
 
-    for i in range(total_iterations,
-                   total_iterations + num_iterations):
+#    for i in range(total_iterations,
+#                   total_iterations + num_iterations):
+    for i in range(num_iterations):
 
         # Get a batch of training examples.
         # x_batch now holds a batch of images and
@@ -260,7 +327,7 @@ def optimize(X_train, y_train_hot_encoded, train_batch_size, num_iterations):
             print(msg.format(i + 1, acc))
 
     # Update the total number of iterations performed.
-    total_iterations += num_iterations
+#    total_iterations += num_iterations
 
     # Ending time.
     end_time = time.time()
@@ -271,7 +338,7 @@ def optimize(X_train, y_train_hot_encoded, train_batch_size, num_iterations):
     # Print the time-usage.
     print("Time usage: " + str(timedelta(seconds=int(round(time_dif)))))
     
-def plot_example_errors(cls_pred, correct):
+def plot_example_errors(X_test, y_test, cls_pred, correct):
     # This function is called from print_test_accuracy() below.
 
     # cls_pred is an array of the predicted class-number for
@@ -293,10 +360,24 @@ def plot_example_errors(cls_pred, correct):
     # Get the true classes for those images.
     cls_true = y_test[incorrect]
     
-    # Plot the first 9 images.
-    plot_images(images=images[0:9],
-                cls_true=cls_true[0:9],
-                cls_pred=cls_pred[0:9])
+    if len(cls_pred)>=9:
+        # Plot the first 9 images.
+        plot_images(images=images[0:9],
+                    cls_true=cls_true[0:9],
+                    cls_pred=cls_pred[0:9])
+    else:
+        for i, image in enumerate(images):
+            plt.imshow(image)#.reshape(image_shape))#, cmap='binary')
+
+            xlabel = "True: {0}, Pred: {1}".format(cls_true[i], cls_pred[i])
+
+            # Show classes as label on x-axis
+            plt.xlabel(xlabel)
+            
+            # Remove ticks
+            plt.xticks([])
+            plt.yticks([])
+            plt.show()
     
 def plot_confusion_matrix(y_test, cls_pred, n_classes):
     # This is called from print_test_accuracy() below.
@@ -314,29 +395,35 @@ def plot_confusion_matrix(y_test, cls_pred, n_classes):
     # Print the confusion matrix as text.
     print(cm)
 
-    plt.figure(figsize=(16, 8))
-    
+    #plt.figure(figsize=(16, 8))
+    fig, ax = plt.subplots(figsize=(8, 8))
+
     # Plot the confusion matrix as an image.
-    plt.matshow(cm)
+    cbar = ax.matshow(cm)
 
     # Make various adjustments to the plot.
-    plt.colorbar()
+    fig.colorbar(cbar)
     tick_marks = np.arange(n_classes)
-    plt.xticks(tick_marks, range(n_classes))
-    plt.yticks(tick_marks, range(n_classes))
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
+    ax.set_xticks(tick_marks, range(n_classes))
+    ax.set_yticks(tick_marks, range(n_classes))
+    ax.set_xlabel('Predicted')
+    ax.set_ylabel('True')
 
     # Ensure the plot is shown correctly with multiple plots
     # in a single Notebook cell.
     plt.show()
     
-# Split the test-set into smaller batches of this size.
-test_batch_size = 256
 
-def print_test_accuracy(X_test, y_test_hot_encoded, y_pred_cls, n_classes, show_example_errors=False,
+
+def print_test_accuracy(X_test, y_test, y_test_hot_encoded, y_pred_cls, n_classes, show_example_errors=False,
                         show_confusion_matrix=False):
 
+    """
+    determine accuracy of conv net when test set is used
+    """
+    # Split the test-set into smaller batches of this size.
+    test_batch_size = 256
+    
     # Number of images in the test-set.
     num_test = len(X_test)
 
@@ -393,20 +480,40 @@ def print_test_accuracy(X_test, y_test_hot_encoded, y_pred_cls, n_classes, show_
     # Plot some examples of mis-classifications, if desired.
     if show_example_errors:
         print("Example errors:")
-        plot_example_errors(cls_pred=cls_pred, correct=correct)
+        plot_example_errors(X_test, y_test, cls_pred, correct)
 
     # Plot the confusion matrix, if desired.
     if show_confusion_matrix:
         print("Confusion Matrix:")
         plot_confusion_matrix(y_test, cls_pred, n_classes)
 
+        
+def resize_image(image_name, enable_plot = False):
+    image = mpimg.imread(image_name)
+    
+    image_resized = scipy.misc.imresize(image, (32, 32))
+    if enable_plot:
+        plt.imshow(image_resized)
+    return image_resized
+
 if __name__ == "__main__":
     
     # load data
     training_file = 'lab 2 data/train.p'
     testing_file = 'lab 2 data/test.p'
-    X_train, y_train, X_test, y_test = load_data(training_file, testing_file)
-        
+    
+    
+    X_train_base, y_train_base, X_val, y_val, X_test, y_test = load_data(training_file, testing_file, load_as_gray = False)
+    
+    #X_train_sheared_pos = shear_images(X_train_base, 0.1)
+    #X_train_sheared_neg = shear_images(X_train_base, -0.2)
+    
+    # numpy array will come as float. as imshow results in strange behaviour, with float, convert it back to unsigned int
+    X_train = np.uint8(np.concatenate((X_train_base, X_train_base), axis=0))
+    y_train = np.uint8(np.concatenate((y_train_base, y_train_base)))
+    #X_train = X_train_base
+    #y_train = y_train_base
+    
     ### To start off let's do a basic data summary.
     # TODO: number of training examples
     n_train = X_train.shape[0]
@@ -437,6 +544,7 @@ if __name__ == "__main__":
     print("Number of classes =", n_classes)
     
     y_train_hot_encoded = dense_to_one_hot(y_train, n_classes)
+    y_val_hot_encoded = dense_to_one_hot(y_val, n_classes)
     y_test_hot_encoded = dense_to_one_hot(y_test, n_classes)
 
     # Get the first images from the test-set.
@@ -517,9 +625,9 @@ if __name__ == "__main__":
                          use_relu=True)
     
     # Fully-connected layer 2
-    # Add another fully-connected layer that outputs vectors of length 10 
+    # - another fully-connected layer that outputs vectors of length 10 
     # for determining which of the 10 classes the input image belongs to. 
-    # Note that ReLU is not used in this layer.
+    # - ReLU is not used in this layer
     layer_fc2 = new_fc_layer(input=layer_fc1,
                          num_inputs=fc_size,
                          num_outputs=n_classes,
@@ -551,12 +659,42 @@ if __name__ == "__main__":
     # split training data into batches that are then feeded into the network
     train_batch_size = 64
     
-    # Counter for total number of iterations performed so far.
-    total_iterations = 0
-    
     # run optimization
-    optimize(X_train, y_train_hot_encoded, train_batch_size, 10)
-    
-    print_test_accuracy(X_test, y_test_hot_encoded, y_pred_cls, n_classes, show_example_errors=True, show_confusion_matrix=True)
+    optimize(X_train, y_train_hot_encoded, train_batch_size, 1000)
 
-    session.close()
+    print('Validation Set')
+    print_test_accuracy(X_val, y_val, y_val_hot_encoded, y_pred_cls, n_classes, show_example_errors=True, show_confusion_matrix=True)
+
+    print('Test Set')
+    print_test_accuracy(X_test, y_test, y_test_hot_encoded, y_pred_cls, n_classes, show_example_errors=True, show_confusion_matrix=True)
+
+    #session.close()
+    
+    dict_traffic_signs = {
+                          'traffic_signs_images_square/einbahnstrasse_17_1.png': 17,
+                          'traffic_signs_images_square/einbahnstrasse_17.png': 17,
+                          'traffic_signs_images_square/vorfahrtgewaehren_13_1.png': 13,
+                          'traffic_signs_images_square/vorfahrtgewaehren_13.png': 13,
+                          'traffic_signs_images_square/vorfahrtsschild_12_1.png': 12,
+                          'traffic_signs_images_square/vorfahrtsschild_12_2.png': 12,
+                          'traffic_signs_images_square/vorfahrtsschild_12_3.png': 12,
+                          'traffic_signs_images_square/vorfahrtsschild_12_4.png': 12,
+                          'traffic_signs_images_square/vorfahrtsschild_12_5.png': 12,
+                          'traffic_signs_images_square/vorfahrtsschild_12.png': 12,
+                          }
+    
+    image_list_web = []
+    label_list_web = []
+
+    for image_name, label in dict_traffic_signs.items():        
+        image = resize_image(image_name)
+        image_list_web.append(image)
+        label_list_web.append(label)
+    
+    X_web = np.array(image_list_web)
+    y_web = np.array(label_list_web)
+    y_web_hot_encoded = dense_to_one_hot(y_web, n_classes)
+
+    
+    print('Set from the web')
+    print_test_accuracy(X_web, y_web, y_web_hot_encoded, y_pred_cls, n_classes, show_example_errors=False, show_confusion_matrix=False)
